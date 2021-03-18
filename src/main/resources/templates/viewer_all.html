@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=no"/>
+    <meta charset="utf-8">
+
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/themes/default/style.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.2/css/all.min.css"/>
+    <title>3D VIEWER</title>
+
+    <style>
+        body {
+            margin: 0;
+        }
+
+        #forgeViewer {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            background-color: #F0F8FF;
+        }
+
+        .show-env-bg-button {
+            background: red;
+        }
+
+        .hide-env-bg-button {
+            background: blue;
+        }
+
+        .vakata-context {
+            z-index: 999 !important;
+        }
+    </style>
+</head>
+<body>
+<div id="forgeViewer"></div>
+</body>
+<script src="./js/jquery-1.12.4.min.js"></script>
+<script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+<script src="./js/toolbar-extension.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.2.1/jstree.min.js"></script>
+<script th:inline="javascript">
+    let main_list = /*[[${main_list}]]*/ '';
+    let bucketKey = /*[[${bucketKey}]]*/ '';
+    let viewer = null;
+    let urns = [];
+    let urns_length;
+    let dats = [];
+    let main_title;
+    let main_model;
+    let main_arr = [];
+    let main_properties = [];
+    let sub_arr = [];
+    let models;
+    let delete_guid;
+    let delete_id_arr = [];
+    let zone = [];
+    let floor = [];
+    let sub_zone = [];
+    let zone_arr = [];
+    let color_arr = [];
+
+    $(function () {
+        for (let i = 0; i < main_list.length; i++) {
+            let extension = main_list[i].title.slice(main_list[i].title.indexOf(".") + 1).toLocaleLowerCase();
+            let arr = {};
+            if ('ifc' === extension) {
+                arr.urn = main_list[i].urn;
+                urns.push(arr);
+                if ('Y' === main_list[i].main_YN) {
+                    main_title = main_list[i].title;
+                    setArray(main_list[i].urn, "main");
+                } else {
+                    setArray(main_list[i].urn, "sub", main_list[i].title);
+                }
+            } else if ('dat' === extension) {
+                arr.dat = main_list[i].title;
+                dats.push(arr);
+            }
+        }
+
+        if (dats.length > 0) {
+            for (let i = 0; i < dats.length; i++) {
+                $.get('./upload/autodesk/' + dats[i].dat, function (data) {
+                    delete_guid = data.split(',');
+                });
+            }
+        }
+
+        urns_length = urns.length;
+        loadModels(urns);
+    });
+
+    function setArray(urn, type, title) {
+        let sub_title = title;
+        $.ajax({
+            url: './dm/get_guid',
+            type: 'get',
+            dataType: 'json',
+            data: {urn: urn}
+        }).done(function (guid) {
+            $.ajax({
+                url: './dm/get_properties',
+                type: 'get',
+                dataType: 'json',
+                data: {urn: urn, guid: guid.data.metadata[0].guid}
+            }).done(function (result) {
+
+                for (let i = 0; i < result.data.collection.length; i++) {
+                    if (delete_guid !== undefined) {
+                        for (let j = 0; j < delete_guid.length; j++) {
+                            if (delete_guid[j] === result.data.collection[i].properties.Item.GUID) {
+                                viewer.hide(result.data.collection[i].objectid, main_model);
+                                delete_id_arr.push(result.data.collection[i].objectid);
+                            }
+                        }
+                    }
+
+                    let data = {};
+                    if (result.data.collection[i].externalId.split("/").length === 5) {
+                        data.objectId = result.data.collection[i].objectid;
+                        data.guid = result.data.collection[i].properties.Item.GUID;
+                        data.name = result.data.collection[i].properties.Item.Name;
+                        if (type === 'main') {
+                            main_arr.push(data);
+                        } else {
+                            data.title = sub_title;
+                            sub_arr.push(data);
+                        }
+                    }
+
+                    if (result.data.collection[i].externalId.split("/").length === 8) {
+                        color_arr.push(result.data.collection[i].objectid);
+                    }
+
+                    if (result.data.collection[i].properties.ENGSOFT_ERP_SLM !== undefined) {
+                        if (result.data.collection[i].properties.ENGSOFT_ERP_SLM.ZONE !== undefined && result.data.collection[i].properties.ENGSOFT_ERP_SLM.FLOOR !== undefined && result.data.collection[i].properties.ENGSOFT_ERP_SLM.SUBZONE) {
+                            zone.push(result.data.collection[i].properties.ENGSOFT_ERP_SLM.ZONE);
+                            floor.push(result.data.collection[i].properties.ENGSOFT_ERP_SLM.FLOOR);
+                            sub_zone.push(result.data.collection[i].properties.ENGSOFT_ERP_SLM.SUBZONE);
+
+                            let zones = "";
+                            zones = result.data.collection[i].properties.ENGSOFT_ERP_SLM.ZONE + "," + result.data.collection[i].properties.ENGSOFT_ERP_SLM.FLOOR + "," + result.data.collection[i].properties.ENGSOFT_ERP_SLM.SUBZONE;
+                            zone_arr.push(zones);
+
+                            let properties = {};
+                            properties.objectId = result.data.collection[i].objectid;
+                            properties.ENGSOFT_ERP_SLM = result.data.collection[i].properties.ENGSOFT_ERP_SLM;
+                            main_properties.push(properties);
+                        }
+                    }
+                }
+            }).success(function () {
+                hideObject();
+                for (let i = 0; i < color_arr.length; i++) {
+                    viewer.setThemingColor(color_arr[i], new THREE.Vector4(105, 105, 105, 1), main_model);
+                }
+            });
+        });
+    }
+
+    function hideObject() {
+        for (let i = 0; i < main_arr.length; i++) {
+            for (let j = 0; j < sub_arr.length; j++) {
+                if (main_arr[i].guid === sub_arr[j].guid) {
+                    viewer.toggleVisibility(main_arr[i].objectId, main_model);
+                }
+            }
+        }
+    }
+
+    function loadModels(urns) {
+
+        const viewerOptions = {
+            env: 'AutodeskProduction',
+            api: 'derivativeV2',
+            accessToken: /*[[${token}]]*/ ''
+        };
+
+        Autodesk.Viewing.Initializer(viewerOptions, () => {
+            const div = document.getElementById('forgeViewer');
+            viewer = new Autodesk.Viewing.Private.GuiViewer3D(div, {extensions: ["ToolbarExtension"]});
+            viewer.start();
+            urns.map((m) => {
+                Autodesk.Viewing.Document.load(`urn:${m.urn}`, (doc) => {
+                    let viewables = doc.getRoot().getDefaultGeometry();
+                    viewer.loadDocumentNode(doc, viewables, {
+                        keepCurrentModels: true,
+                        globalOffset: {x: 0, y: 0, z: 0}
+                    }).then(fit);
+                });
+            });
+        });
+    }
+
+    function fit() {
+        let camera = viewer.getCamera();
+        viewer.applyCamera(camera, true);
+        viewer.refresh(true);
+
+        if (urns_length === viewer.impl.visibilityManager.models.length) {
+            for (let k = 0; k < viewer.impl.visibilityManager.models.length; k++) {
+                if (main_title === viewer.impl.visibilityManager.models[k].getDocumentNode().data.name) {
+                    main_model = viewer.impl.visibilityManager.models[k];
+                }
+            }
+        }
+    }
+
+</script>
+</html>

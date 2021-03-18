@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=no"/>
+    <meta charset="utf-8">
+
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css">
+
+    <title>3D VIEWER</title>
+
+    <style>
+        body {
+            margin: 0;
+        }
+
+        #forgeViewer {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            background-color: #F0F8FF;
+        }
+    </style>
+</head>
+<body>
+<div id="forgeViewer"></div>
+</body>
+<script src="./js/jquery-1.12.4.min.js"></script>
+<script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+<script th:inline="javascript">
+    let object = /*[[${urn}]]*/ '';
+    let viewer;
+    let options = {
+        env: 'AutodeskProduction',
+        api: 'derivativeV2',
+        getAccessToken: function (onTokenReady) {
+            let token = /*[[${token}]]*/ "";
+            let timeInSeconds = 3600;
+            onTokenReady(token, timeInSeconds);
+        }
+    };
+
+    Autodesk.Viewing.Initializer(options, function () {
+        let htmlDiv = document.getElementById('forgeViewer');
+        viewer = new Autodesk.Viewing.GuiViewer3D(htmlDiv);
+
+        let startedCode = viewer.start();
+        if (startedCode > 0) {
+            console.error('Failed to create a Viewer: WebGL not supported.');
+            return;
+        }
+        console.log('Initialization complete, loading a model next...');
+    });
+
+
+    Autodesk.Viewing.Document.load(object, onDocumentLoadSuccess, onDocumentLoadFailure);
+
+    function onDocumentLoadSuccess(viewerDocument) {
+        let defaultModel = viewerDocument.getRoot().getDefaultGeometry();
+        viewer.loadDocumentNode(viewerDocument, defaultModel);
+    }
+
+    function onDocumentLoadFailure() {
+        // console.error('Failed fetching Forge manifest');
+        alert("파일을 변환해주세요.");
+        self.close();
+    }
+
+    function fit() {
+        let camera = viewer.getCamera();
+        viewer.applyCamera(camera, true);
+        viewer.refresh(true);
+    }
+</script>
+</html>

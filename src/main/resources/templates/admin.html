@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=no"/>
+    <meta charset="utf-8">
+
+    <link rel="stylesheet" href="./css/bootstrap.min.css">
+    <link rel="stylesheet" href="./css/css-loader.css">
+
+    <title>3D VIEWER</title>
+</head>
+<body class="p-0">
+<div class="loader loader-default"></div>
+<div class="container-fluid">
+    <div class="row" style="height: 5vh; background-color: red;">
+        <div class="col-sm">HEADER</div>
+    </div>
+
+    <div class="row" style="height: 90vh;">
+        <!-- 사이드바 -->
+        <div class="col-3">
+            <button class="btn btn-block btn-outline-dark my-1" data-toggle="modal" data-target="#create_modal">
+                <i class="fad fa-folder-plus"></i> 버킷생성
+            </button>
+            <ul class="list-group mt-2" id="bucket"></ul>
+        </div>
+        <!-- 메인 -->
+        <div class="col-9" id="objectSection">
+            <div>
+                <button class="btn btn-outline-info mr-1" id="viewer_all">viewer_all</button>
+                <button class="btn btn-outline-info mr-1" id="insert_main">메인등록</button>
+            </div>
+            <div class="row" id="objectTools" style="display: none;">
+                <div class="col mt-1 mx-2 p-0">
+                    <button class="btn btn-outline-info mr-1" id="translate_file"><i class="fad fa-sync"></i></button>
+                    <button class="btn btn-outline-info mr-1" id="viewer_file"><i class="fad fa-eye"></i></button>
+                    <button class="btn btn-outline-info mr-1" id="delete_file"><i class="fad fa-trash-alt"></i></button>
+                </div>
+            </div>
+            <div class="row" id="object"></div>
+        </div>
+    </div>
+
+    <!-- 하단 -->
+    <div class="row" style="height: 5vh;">
+        <div class="col-sm justify-content-center align-self-center" id="objectFile" style="display: none;">
+            <div class="input-group">
+                <input type="file" class="form-control" placeholder="" aria-label="" aria-describedby="basic-addon1"
+                       id="uploadFile">
+                <div class="input-group-append">
+                    <button class="btn btn-outline-secondary" id="uploadButton">upload</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="create_modal" tabindex="-1" aria-labelledby="createModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createModalLabel">Bucket 생성</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="bucket-key" class="col-form-label"> KEY </label>
+                    <input type="text" class="form-control" id="bucket-key">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="create_bucket">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+<script src="./js/jquery-1.12.4.min.js"></script>
+<script src="./js/bootstrap.min.js"></script>
+<script src="./js/fontawesome.min.js"></script>
+<script src="./js/duotone.min.js"></script>
+<script th:inline="javascript">
+
+    let intervalTranslate;
+
+    $(function () {
+        $(".loader").addClass("is-active");
+        loadBucket();
+    });
+
+    $('#create_bucket').on('click', function () {
+        $(".loader").addClass('is-active');
+
+        let name = $("#bucket-key").val().trim();
+        if (name.length <= 0) {
+            alert("key 입력");
+            $('#bucket-key').trigger('focus');
+            return false;
+        } else {
+            $.post("./dm/bucket", {name: name}, function (message) {
+                if (message === 'OK') {
+                    alert('complete');
+                    $('#create_modal').modal('hide');
+                    loadBucket();
+                } else {
+                    alert(message);
+                }
+            });
+        }
+        $(".loader").removeClass('is-active');
+    });
+
+    $('#uploadButton').on('click', function () {
+        $(".loader").addClass('is-active');
+        let file = $("#uploadFile").prop('files');
+        let bucketKey = $('.active').text().trim();
+        let formData = new FormData();
+        formData.append("file", file[0]);
+        formData.append("key", bucketKey);
+
+        $.ajax({
+            url: './dm/objects/upload',
+            type: 'post',
+            dataType: 'json',
+            data: formData,
+            contentType: false,
+            processData: false,
+        }).done(function (data) {
+            loadObjects(bucketKey);
+            $("#uploadFile").val("");
+            $(".loader").removeClass('is-active');
+            insertMain(bucketKey, btoa(unescape(encodeURIComponent(data.objectId))), data.objectKey);
+        });
+    });
+
+    $('#create_modal').on('shown.bs.modal', function () {
+        $("#bucket-key").val('').trigger('focus');
+    });
+
+    $(document).on('click', '#objectSection', function () {
+        $('.objectItem').removeClass('bg-primary');
+        $("#objectTools").hide();
+    });
+    $(document).on('click', '.objectItem', function (e) {
+        e.stopPropagation();
+
+        $('.objectItem').removeClass('bg-primary');
+        $(this).addClass('bg-primary');
+        $("#objectTools").show();
+
+    });
+
+    $(document).on('click', '.list-group-item', function () {
+        $(".loader").addClass('is-active');
+        $('.list-group-item').removeClass('active');
+        $(this).addClass('active');
+
+        loadObjects($(this).text().trim());
+        $("#objectTools").hide();
+    });
+
+    function loadObjects(key) {
+        $.getJSON('./dm/objects?key=' + key, function (objects) {
+            $('#object').html('');
+            $.each(objects.items, function (i, item) {
+                let html = '';
+                html += `<div class='col-3 col-sm-3 col-md-2 col-lg-2 col-xl-1 card rounded m-2 objectItem btn' data-object='${item.objectId}'>`;
+                html += `    <div class='p-3 text-center'>`;
+                html += `        <div><i class='fad fa-cube fa-3x'></i></div>`;
+                html += `        <div class=''>${item.objectKey}</div>`;
+                html += `    </div>`;
+                html += `</div>`;
+
+                $('#object').append(html);
+            });
+
+            $('#objectFile').val('').show();
+            $('.loader').removeClass('is-active');
+        });
+    }
+
+    function loadBucket() {
+        $.getJSON('./dm/bucket', function (buckets) {
+            $('#bucket').html('');
+            $.each(buckets.items, function (i, item) {
+                let li = '';
+                li += `<li class=\'list-group-item d-flex justify-content-between align-items-center\'> ${item.bucketKey}`;
+                li += `<span onclick='deleteBucket(this)'><i class='fad fa-times-square'></i></span>`;
+                li += `</li>`;
+                $('#bucket').append(li);
+            });
+
+            $('.loader').removeClass('is-active');
+        });
+    }
+
+
+    $('#translate_file').on('click', function () {
+        $('.loader').addClass('is-active');
+        let extension = $(".bg-primary").text().trim().slice($(".bg-primary").text().trim().indexOf(".") + 1).toLowerCase();
+        if (extension === 'dat') {
+
+        } else {
+            let objectId = btoa(unescape(encodeURIComponent($(".bg-primary").data("object").trim())));
+            let bucketKey = $('.active').text().trim();
+            let objectName = $(".bg-primary").text().trim();
+            $.ajax({
+                url: './dm/objects/translate',
+                type: 'get',
+                dataType: 'json',
+                data: {urn: objectId, bucketKey: bucketKey, objectName: objectName},
+                async: false
+            }).done(function (result) {
+                $('.loader').removeClass('is-active');
+                alert(result.result);
+            });
+        }
+    });
+
+    $('#viewer_file').on('click', function () {
+        let objectId = btoa(unescape(encodeURIComponent($(".bg-primary").data("object").trim())));
+        window.open('./viewer?urn=' + objectId, '_blank');
+    });
+
+    $('#delete_file').on('click', function () {
+        $('.loader').addClass('is-active');
+        let bucketKey = $('.active').text().trim();
+        if (confirm(bucketKey + " 파일을 삭제하시겠습니까?")) {
+            let objectName = $(".bg-primary").text().trim();
+            $.ajax({
+                url: './dm/objects/delete',
+                type: 'get',
+                data: {bucketKey: bucketKey, objectName: objectName},
+            }).done(function (message) {
+                alert(message);
+                loadObjects(bucketKey);
+            });
+        }
+        $('.loader').removeClass('is-active');
+    });
+
+    function deleteBucket(obj) {
+        $('.loader').addClass('is-active');
+        let bucketKey = $(obj).parent().text().trim();
+        if (confirm(bucketKey + " 버킷을 삭제하시겠습니까?")) {
+            $.ajax({
+                url: './dm/bucket/delete',
+                type: 'get',
+                data: {bucketKey: bucketKey},
+            }).done(function (message) {
+                alert(message);
+                loadBucket();
+            });
+        }
+        $('.loader').removeClass('is-active');
+    }
+
+    $('#viewer_all').on('click', function () {
+        let bucketKey = $('.active').text().trim();
+
+        let form = $('<form>', {'id': 'view_all_form', 'method': 'post', 'target': '_blank', 'action': 'viewer_all'});
+        form.append($('<input>', {'name': 'bucketKey', 'value': bucketKey}));
+        $(document.body).append(form);
+        $('#view_all_form').submit();
+        $("#view_all_form").remove();
+    });
+
+    $('#insert_main').on('click', function () {
+        $('.loader').addClass('is-active');
+        let bucketKey = $('.active').text().trim();
+        let urn = btoa(unescape(encodeURIComponent($(".bg-primary").data("object").trim())));
+        let title = $(".bg-primary").text().trim();
+        $.ajax({
+            url: './get_main',
+            type: 'get',
+            data: {bucketKey: bucketKey}
+        }).done(function (main) {
+            if (main === '') {
+                $.ajax({
+                    url: './register_main',
+                    type: 'get',
+                    data: {bucketKey: bucketKey, urn: urn, title: title}
+                }).done(function (data) {
+                    if (data === 1) {
+                        alert("등록완료");
+                    }
+                });
+            } else {
+                alert("이미 등록되어 있습니다");
+            }
+            $('.loader').removeClass('is-active');
+        });
+    });
+
+    function insertMain(bucketKey, urn, title) {
+        $.ajax({
+            url: './insert_bucket_data',
+            type: 'get',
+            data: {
+                bucketKey: bucketKey,
+                urn: urn,
+                title: title
+            }
+        }).done(function (data) {
+            if (data === 1) {
+                alert("등록완료");
+            }
+        });
+    }
+</script>
+</html>
