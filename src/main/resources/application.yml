@@ -2,9 +2,9 @@ spring:
   main:
     banner-mode: off
   datasource:
-    url: jdbc:sqlserver://192.168.60.11:9567;databaseName=autodesk
-    username: sa
-    password: eng@soft9567!
+    url:
+    username:
+    password:
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
 
   servlet:
